@@ -1,0 +1,27 @@
+# Python Cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual Environments
+.venv/
+venv/
+ENV/
+env/
+.env
+
+# Raw Data
+data/osfstorage-archive/
+*.mat
+*.h5
+
+# Model Checkpoints (These files are very large)
+models/*.pth
+*.pth
+
+# Jupyter Notebook Checkpoints
+.ipynb_checkpoints/
+*/.ipynb_checkpoints/
+
+# macOS System Files
+.DS_Store
