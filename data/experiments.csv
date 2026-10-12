@@ -1,5 +1,0 @@
-Timestamp,Model_Name,Description,Layers,d_model,Heads,Mask_Ratio,Augmentation,Train_R2,Test_R2
-2026-07-04 20:15:09,Time_Split_Basic,Initial proof of concept on same pigs,4,128,4,0.15,False,0.982,0.678
-2026-07-04 20:25:37,Pig_Split_Basic,First Leave-One-Out validation on unseen pig,4,128,4,0.15,False,0.968,0.803
-2026-07-05 00:02:40,Pig_Split_Large,Scaled up model trained for 20 epochs,6,256,8,0.15,False,N/A,N/A
-2026-07-05 19:10:27,Pig_Split_V2_ResNet,ResNet Stem + Data Augment + 35% Masking,6,256,8,0.35,True,0.981,0.898

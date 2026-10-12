@@ -10,8 +10,8 @@ ENV/
 env/
 .env
 
-# Raw Data
-data/osfstorage-archive/
+# Data (raw OSF recordings and everything derived from them)
+data/
 *.mat
 *.h5
 
