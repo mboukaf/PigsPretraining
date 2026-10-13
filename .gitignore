@@ -25,3 +25,4 @@ models/*.pth
 
 # macOS System Files
 .DS_Store
+runs/

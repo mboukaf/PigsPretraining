@@ -68,3 +68,14 @@ class Projector(nn.Module):
 
     def forward(self, e: torch.Tensor) -> torch.Tensor:
         return self.net(e)
+
+
+class SummaryHead(nn.Module):
+    """e (B, d_e) → window summary statistics (B, n_out), see model/features.py (objective S)."""
+
+    def __init__(self, d_embed: int = 32, n_out: int = 38, hidden: int = 128):
+        super().__init__()
+        self.net = nn.Sequential(nn.Linear(d_embed, hidden), nn.GELU(), nn.Linear(hidden, n_out))
+
+    def forward(self, e: torch.Tensor) -> torch.Tensor:
+        return self.net(e)

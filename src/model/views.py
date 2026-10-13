@@ -69,7 +69,7 @@ def _span_mask(B: int, W: int, gen: torch.Generator, device) -> torch.Tensor:
 
 
 def make_view(X: torch.Tensor, r: torch.Tensor, a: torch.Tensor, offset_scale: torch.Tensor,
-              gen: torch.Generator | None = None) -> dict[str, torch.Tensor]:
+              gen: torch.Generator | None = None, keep_prob: float = KEEP_PROB) -> dict[str, torch.Tensor]:
     """
     X (B, W, M, L) normalized beats, r (B, W), a (B, W, M) availability (= present),
     offset_scale (M,): OFFSET_MMHG expressed in normalized units per signal (0 for non-pressures).
@@ -81,7 +81,7 @@ def make_view(X: torch.Tensor, r: torch.Tensor, a: torch.Tensor, offset_scale: t
 
     # sensor dropout: keep each present signal with KEEP_PROB, at least one
     sig_present = a.any(dim=1)                                                   # (B, M)
-    keep = (torch.rand(B, M, generator=gen) < KEEP_PROB).to(dev) & sig_present
+    keep = (torch.rand(B, M, generator=gen) < keep_prob).to(dev) & sig_present
     none = ~keep.any(dim=1)
     if none.any():                                   # force one present signal back in
         scores = torch.rand(B, M, generator=gen).to(dev) * sig_present
