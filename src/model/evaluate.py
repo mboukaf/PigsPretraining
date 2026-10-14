@@ -77,7 +77,8 @@ def main(runs: list[str], split: str = "val"):
             args = ckpt["args"]
             recs = select_recordings(args.get("pigs"), args.get("no_flow_pigs"))   # the run's own data
             fold = make_fold(recs, args["test_pig"], args.get("val_pig"),
-                             vlv_mode=args.get("vlv_mode", "relative"), qao_mode=args.get("qao_mode", "zero"))
+                             vlv_mode=args.get("vlv_mode", "relative"), qao_mode=args.get("qao_mode", "zero"),
+                             per_recording=args.get("per_recording", False))
             torch.manual_seed(args.get("seed", 0))                 # same init as the run's epoch 0
             untrained = SSLModel().encoder.to(device)
             trained = SSLModel().encoder.to(device)

@@ -5,6 +5,12 @@ Log of the self-supervised training runs of the encoder described in
 Code: `src/model/train.py`. Each run writes `runs/<run>/fold<k>/log.json`;
 `python -m model.compare <runs…>` (from `src/`) prints the summary tables used below.
 
+> **TL;DR (2026-10-13):** on this dataset the self-supervised encoder does not beat classical
+> waveform features on any test (physiology probes, cross-signal targets, missing signals,
+> detection of PEEP manoeuvres); its only unique property is a sensor-invariant representation.
+> Diagnosis: cross-animal generalization with 2–6 training animals. See **Overall conclusion** at
+> the end; recommended next step: more / simulated data (option C).
+
 ## How runs are judged
 
 Selection uses the **validation pig**, never the training loss (spec §14.2).
@@ -467,4 +473,285 @@ Smoke test (1 epoch, paper pigs, σ = 1, fold 7): L_S ≈ 1.7 at start (same sca
 Runs: E11 (σ = 1) and E12 (σ = 5), paper pigs, seed 0, test pigs 4, 6, 7, 8; benchmarked against
 E9 (same setup, σ = 0).
 
-Results: *pending*
+Benchmark, median within-pig r on the test pigs:
+
+| | E9 (σ = 0) | **E11 (σ = 1)** | E12 (σ = 5) | untrained | handcrafted |
+|---|---|---|---|---|---|
+| full | 0.74 | 0.77 | 0.75 | 0.70 | **0.99** |
+| pressures | 0.61 | 0.62 | 0.67 | 0.62 | **0.88** |
+| P_ao only | 0.67 | 0.66 | 0.58 | 0.69 | **0.77** |
+| cross-signal, P_ao only | 0.53 | 0.62 | 0.47 | 0.66 | **0.73** |
+
+E11 vs E9 is within single-seed noise; E12 hurts the LV targets (full input: 0.77 → 0.38).
+Trained beats handcrafted in 12–30 % of comparisons (E9: 17–39 %).
+
+### Diagnostic: does the summary skill transfer to a new pig?
+
+The summary head learns its task: training loss ≈ 0.2 per view (standardized MSE). Running the
+last-epoch model's summary head on each window and correlating predicted with actual summaries
+(within-pig r, full input):
+
+| | training pigs | **test pig** |
+|---|---|---|
+| all statistics (median) | 0.91–0.93 | **0.58** |
+| beat mean / max / peak-to-peak | 0.94–0.97 | 0.65–0.76 |
+| beat min | 0.85–0.88 | 0.44–0.47 |
+| beat-duration mean | 0.95 | 0.92–0.94 |
+
+**The encoder learns the summaries on its training animals but does not transfer them to a new
+animal** — not even "mean of the input beats", which it sees directly (0.65–0.69 on test pigs).
+Only beat duration, which enters through a separate linear path, transfers. With 2 training pigs,
+a new pig's waveforms (pressure levels, beat shapes) lie outside the training distribution and the
+network does not extrapolate; handcrafted statistics compute the same quantities exactly for any
+animal. This is a cross-animal generalization limit, not a readout or objective problem.
+
+### Conclusion of option B
+
+Changing the objective does not fix it: the bottleneck is how far a new animal is from the few
+training animals. Options that address that directly:
+
+- **B2 — per-recording normalization of all signals** (as already done for Q_ao / V_lv): every pig's
+  signals centred / scaled by its own robust statistics, so a new pig is in-distribution by
+  construction. The absolute levels (e.g. mean pressure) are lost from the waveform input and
+  would have to be passed separately (e.g. as per-recording scalars) if needed. Cheap to test.
+- **C — more animals / simulated or human data** (spec §18.3): widen the training distribution.
+- **A — reframe** around what the baselines cannot do (missing-signal robustness, temporal
+  change detection).
+
+## Option B2 — per-recording normalization (E13, E14, E15)
+
+Change (not in the spec): `--per-recording` (`data/normalize.py`, `Normalizer.per_recording`).
+Each recording's signals are centred and scaled by that recording's own median and IQR/1.35
+instead of the training pigs' statistics. Beat durations stay globally normalized; evaluation
+targets are unchanged (computed in physical units by `model/targets.py`). Check on fold 7 (paper
+pigs): with global normalization the test pig's medians sit far from the training pigs (P_fem
+−1.33, P_vc +2.35 normalized units); with per-recording normalization every pig is centred at 0.
+
+Trade-off: between-animal level differences (e.g. one pig's higher mean pressure) are removed from
+the waveform input; within-recording changes are kept.
+
+Runs (seed 0, test pigs 4, 6, 7, 8): E13 paper pigs; E14 all pigs; E15 paper pigs + summary
+objective σ = 1 (to repeat the transfer diagnostic). All 12 runs completed.
+
+**Transfer diagnostic** (summary head, predicted vs actual window summaries, within-pig r):
+
+| | E11 global, test pig | **E15 per-recording, test pig** | training pigs (both) |
+|---|---|---|---|
+| all statistics (median) | 0.58 | **0.70** | 0.91–0.92 |
+| beat mean | 0.66 | **0.86** | 0.95–0.96 |
+| beat max | 0.72 | **0.88** | 0.96 |
+| peak-to-peak | 0.69 | **0.80** | 0.94 |
+| beat min | 0.48 | 0.47 | 0.87–0.89 |
+
+Per-recording normalization **does reduce the cross-animal gap** for what the encoder learns
+(0.58 → 0.70 overall, mean / max / peak-to-peak +0.11 to +0.20), confirming the diagnosis: part
+of the problem was the new animal being out of distribution.
+
+**Benchmark** (median within-pig r on the test pigs, seed 0):
+
+| | paper global (E9) | paper per-rec (E13) | paper per-rec + S (E15) | all global (E7) | all per-rec (E14) | handcrafted (range) |
+|---|---|---|---|---|---|---|
+| full | 0.74 | 0.74 | 0.76 | 0.78 | 0.69 | 0.90–0.99 |
+| pressures | 0.61 | 0.58 | 0.65 | 0.71 | 0.60 | 0.83–0.90 |
+| P_ao only | 0.67 | 0.61 | 0.65 | 0.54 | 0.64 | 0.72–0.77 |
+| cross-signal, P_ao only | 0.53 | 0.53 | 0.58 | 0.40 | 0.61 | 0.62–0.73 |
+
+Trained > handcrafted in 11–35 % of comparisons; trained > untrained in 42–57 %. All differences
+between the trained configurations are within single-seed noise.
+
+### Conclusion of option B2
+
+Per-recording normalization makes the learned summaries transfer better, but **the probed
+embedding still does not beat simple beat statistics**, and still does not clearly beat an
+untrained encoder. With 8 animals, neither the objective (B) nor the input distribution (B2)
+is enough for the learned representation to outperform explicit features on these targets.
+Remaining directions are the ones that change the setting rather than the training details:
+**C** (more / simulated / human data) or **A** (use the encoder where baselines cannot compete).
+
+## Option A1 — robustness to missing signals (spec §15.3)
+
+`python -m model.robustness <runs> --folds 4 6 7 8` (`model/robustness.py`) → `runs/robustness.json`.
+Scenario: a probe fitted once on full-input training windows is applied, without refitting, to a
+new pig where only a subset of signals exists. 24 checkpoints (E7 / E9 × seeds 0–2 × test pigs
+4, 6, 7, 8); within-pig r, median over pigs × targets, mean ± sd over seeds. Subsets from the spec.
+
+**Consistency** (r between full-input and subset representation of the same window):
+
+| | trained | untrained | handcrafted (median-filled) | handcrafted + regression imputation |
+|---|---|---|---|---|
+| 6 subsets, both pig sets | **0.88–1.00** | 0.13–0.85 | −0.01–0.39 | 0.41–0.85 |
+
+**Transfer** (all pigs; paper pigs similar):
+
+| subset | trained | untrained | handcrafted, median-filled | **handcrafted, regression-imputed** |
+|---|---|---|---|---|
+| P_fem + P_vc | 0.59 ± 0.01 | 0.28 | 0.20 | **0.68** |
+| P_fem only | 0.49 ± 0.06 | 0.27 | 0.18 | **0.74** |
+| P_lv + V_lv | 0.66 ± 0.03 | 0.38 | 0.53 | **0.77** |
+| P_ao only | 0.51 ± 0.20 | 0.55 | 0.52 | **0.71** |
+| pressures | 0.71 ± 0.02 | 0.69 | 0.88 | **0.91** |
+| P_ao + Q_ao | 0.68 ± 0.03 | 0.69 | 0.78 | **0.82** |
+
+Findings:
+1. **Training produces a genuinely sensor-invariant representation** (consistency 0.88–1.00,
+   spec property 3), which neither the untrained encoder nor the baselines have, and it loses
+   less when signals are removed (median drop full → subset 0.07–0.11 vs 0.21–0.22 for
+   median-filled handcrafted features). Against naive filling of missing features it wins clearly
+   when P_ao is absent.
+2. **But the classical pipeline — predict the missing handcrafted features from the available ones
+   (ridge regression on the training pigs), then apply the full probe — beats it on every subset**
+   (paired difference −0.08 to −0.19; trained better in only 16–33 % of comparisons).
+
+## Option A2 — detecting a change of state (spec §15.2)
+
+`python -m model.tracking <runs>` (`model/tracking.py`) → `runs/tracking.json`. The only
+intervention with recoverable timing is the PEEP recruitment manoeuvre (from airway pressure,
+never an encoder input): 4–8 % of windows per pig have PEEP ≥ 7 cmH₂O (baseline ≈ 4). Class-balanced
+logistic regression fitted on the training pigs, ROC AUC on the test pig; 24 checkpoints.
+
+| AUC (median over pigs, mean ± sd over seeds) | trained | untrained | **handcrafted** | template PCA |
+|---|---|---|---|---|
+| all pigs, full | 0.69 ± 0.13 | 0.86 ± 0.01 | 0.85 | **0.91** |
+| all pigs, P_ao only | 0.63 ± 0.26 | 0.69 ± 0.10 | **0.95** | 0.83 |
+| paper pigs, full | 0.65 ± 0.13 | 0.77 ± 0.09 | 0.84 | **0.93** |
+| paper pigs, P_ao only | 0.77 ± 0.04 | 0.68 ± 0.05 | **0.87** | 0.54 |
+
+Findings: the manoeuvres are clearly visible in the cardiac waveforms (handcrafted / template PCA
+AUC 0.83–0.95), but **the trained encoder is worse than the untrained one** (e.g. 0.69 vs 0.86, all
+pigs, full input): training *removes* this information. Plausible cause: the two-view objective
+asks windows shifted by up to 4 beats (≈ one breath) to have the same embedding, which teaches
+invariance to respiratory-cycle changes — precisely what a PEEP manoeuvre alters.
+
+---
+
+# Overall conclusion (as of 2026-10-13)
+
+Question: with the 8 porcine recordings, does the self-supervised encoder of the spec produce a
+representation that is more useful than classical waveform features?
+
+**Answer: no, on every test we could construct.** Summary of the evidence (all on held-out test
+pigs, within-pig scores, ≥ 3 seeds where it matters):
+
+| test | best method | trained encoder vs it |
+|---|---|---|
+| 21 physiological targets, any input subset (§15.1) | handcrafted beat statistics | below (r 0.62–0.79 vs 0.72–0.99) |
+| cross-signal targets (§15.1, reduced input) | handcrafted / template PCA | below |
+| trained vs untrained encoder | — | no consistent difference (seed noise) |
+| missing signals without refitting (§15.3) | handcrafted + regression imputation | below (−0.08 to −0.19 r) |
+| sensor-invariance of the representation (§15.3) | **trained encoder** | **best** (0.88–1.00) |
+| detecting PEEP manoeuvres (§15.2) | handcrafted / template PCA | below, and below untrained |
+
+What was tried to fix it, and why it did not: data cleaning and calibration removal (E1, fixed
+overfitting), objective weights (E2–E8), pig selection (E9–E10), seed replication, a summary
+objective forcing the embedding to carry the statistics (E11–E12: learned on training pigs,
+r 0.92, not transferred to new pigs, r 0.58), per-recording normalization to make new pigs
+in-distribution (E13–E15: transfer 0.70, still below baselines). The consistent diagnosis is a
+**cross-animal generalization limit**: with 2–6 training animals per fold, what the encoder learns
+does not extrapolate to a new animal as well as explicitly computed features do, and its invariance
+objectives remove some state information.
+
+Solid by-products, usable regardless of the encoder:
+- the preprocessing pipeline (Steps 1–9, `src/preprocessing`, `src/data`) and its quality control;
+- the evaluation suite: targets (`model/targets.py`), benchmark, robustness and tracking scripts;
+- the finding that **within a new animal, relative stroke volume and cardiac output are tracked
+  from aortic pressure alone at r ≈ 0.8** with simple features, and that recruitment manoeuvres
+  are detectable from aortic pressure alone (AUC up to 0.95);
+- the evidence that the paper's excluded pigs 2 / 3 behave differently for flow.
+
+Recommended next step: **option C (more / different data)** is the only lever left that addresses
+the diagnosis — e.g. pretraining on simulated beats from a lumped cardiovascular model spanning
+many virtual "animals", or on large human arterial-pressure datasets, then evaluating with the
+suite above, with the handcrafted / regression-imputation baselines as the bar to beat. If the
+thesis must stay within this dataset, the defensible framing is A: classical features as the
+method, and the encoder study as a documented negative result explaining why (small-n
+cross-animal generalization, invariance objectives removing state information).
+
+## Within-pig split — probe fitted and tested on the same pig
+
+`python -m model.withinpig E7` (`model/withinpig.py`) → `runs/withinpig.json`. For each of the 8
+pigs, the probe is fitted on part of that pig's recording and tested on another part of the same
+pig; encoders are not retrained (the trained encoder is E7's fold where the pig was the test pig,
+so it never saw that pig). Splits: **blocked** (5 contiguous blocks, each tested once, with a
+gap of one window length) and **chronological** (first 60 % → last 40 %; the later phases are
+unseen). Compared with the cross-pig setting (probe fitted on the other pigs; E7 benchmark on all
+8 folds). Seed 0.
+
+Median Pearson r over the 21 targets and 8 pigs:
+
+| | cross-pig | within-pig, blocked | within-pig, chronological |
+|---|---|---|---|
+| handcrafted, P_ao only | 0.71 | 0.82 | **0.84** |
+| template PCA, P_ao only | 0.63 | 0.76 | 0.72 |
+| trained encoder, P_ao only | 0.52 | 0.54 | 0.40 |
+| untrained encoder, P_ao only | 0.55 | 0.61 | 0.48 |
+| handcrafted, full input | 0.99 | 1.00 | 1.00 |
+| trained encoder, full input | 0.76 | 0.69 | 0.58 |
+
+Within-pig absolute R² (median): handcrafted 0.99 (full) / 0.59 blocked, 0.18 chronological
+(P_ao only); trained encoder negative everywhere (−0.6 to −4.3).
+
+Key targets from P_ao only, Pearson r (cross-pig → blocked → chronological):
+- handcrafted: relative CO 0.68 → 0.78 → 0.84; relative SV 0.69 → 0.68 → 0.79; max dP_lv/dt
+  0.84 → 0.85 → 0.87; Windkessel τ 0.69 → 0.80 → 0.86; PEEP ≈ 0.3 throughout;
+- trained encoder: relative CO 0.23 → 0.59 → 0.51; pulse pressure 0.82 → 0.78 → 0.22.
+
+Findings:
+1. **Calibrating on the same animal helps the simple features**: from aortic pressure alone, the
+   median r rises from 0.71 (other pigs) to 0.82–0.84 (same pig), and relative cardiac output
+   reaches r = 0.84 even when predicting the later, unseen phases of the experiment. The
+   correlation transfers to new phases better than the absolute level (R² 0.18 chronological):
+   the trend is right, the offset drifts.
+2. **The encoder does not benefit**: within-pig r is no better than cross-pig (0.54 vs 0.52) and
+   worse chronologically (0.40), with negative R². Its embedding is neither linearly informative
+   nor stable over time within one animal — consistent with the invariance objectives removing
+   slow state changes (A2).
+3. So the cross-animal gap identified earlier is not the only problem of the encoder; even with a
+   per-animal calibration, the learned embedding stays below simple beat statistics.
+
+## Calibrate then track — relative cardiac output from P_ao after calibrating on the same pig
+
+`python -m model.calibrate` (`model/calibrate.py`) → `runs/calibrate.json`,
+`figures/results/fig5_calibrate_track.png`. Pigs 2–8 (pig 1 has no usable flow); handcrafted P_ao
+beat statistics with a ridge probe; calibration on the first D minutes, tracking on the rest
+(after a one-window gap). Methods: **population** (probe from the other pigs, no calibration),
+**population + offset** (one-point calibration: mean error on the calibration period removed),
+**population + slope & offset** (linear rescaling on the calibration period), **calibrated**
+(probe fitted on the calibration period only). Medians over the 7 pigs:
+
+| D [min] | 5 | 10 | 20 | 30 | 45 | 60 |
+|---|---|---|---|---|---|---|
+| r, population (= population + offset) | **0.84** | **0.85** | **0.86** | **0.86** | **0.86** | **0.85** |
+| r, population + slope & offset | 0.68 | 0.15 | 0.70 | 0.71 | 0.69 | 0.74 |
+| r, calibrated | 0.34 | 0.42 | 0.46 | 0.64 | 0.76 | 0.80 |
+| trend concordance %, population | 88.9 | 88.9 | 88.2 | 88.2 | 88.2 | 88.2 |
+| trend concordance %, calibrated | 94.4 | 94.4 | 90.0 | 90.9 | 90.0 | 87.5 |
+| RMSE % of mean CO, population | 26.5 | 26.3 | 26.4 | 26.6 | 25.3 | 26.5 |
+| RMSE % of mean CO, population + offset | 32.1 | 32.1 | 31.8 | 30.3 | 33.9 | 37.6 |
+
+Trend concordance: % of consecutive 5-min changes with the same sign in prediction and
+reference, excluding changes < 5 % (median 16 scored changes per pig).
+
+Findings:
+1. **The population probe tracks relative cardiac output from aortic pressure alone without any
+   per-pig calibration**: r ≈ 0.85 and ≈ 88 % trend concordance over the tracking period, stable
+   for every D. This is the main positive result of the project.
+2. **Calibrating on the start of the recording does not help, and fitting a slope there hurts**:
+   the first minutes are a stable baseline where cardiac output barely varies, so a slope (or a
+   whole probe) fitted there is noise — some pigs even get a negative slope (r 0.15 at D = 10).
+   A pig-specific probe needs ≥ 45–60 min of calibration data (covering at least one recruitment
+   manoeuvre) to approach the population probe (r 0.76–0.80).
+3. **Offset calibration does not improve the level either**, because "relative CO" is defined
+   relative to the whole recording's typical flow (to remove flow-probe calibration), so the
+   population probe is already near the right level, while an offset from the baseline carries the
+   baseline level into the later, lower-output phases. Absolute agreement in L/min cannot be
+   evaluated across pigs with these flow probes; the meaningful metrics here are trend metrics
+   (r, concordance).
+4. **The prediction compresses large changes** (bottom panels): the direction and timing of every
+   change are right, but deep drops (terminal decline of pigs 4 and 6, actual → ~0) are
+   under-predicted (prediction ~10–12). Plausible causes: ridge shrinkage and the compliant,
+   non-linear pressure–flow relation at very low output.
+
+Interpretation for the thesis: a **population pulse-contour-like model of aortic pressure features
+tracks within-animal cardiac-output trends in unseen pigs** (r ≈ 0.85, concordance ≈ 88 %), with
+no calibration needed for trending; short calibration periods are counter-productive unless they
+contain haemodynamic variation.

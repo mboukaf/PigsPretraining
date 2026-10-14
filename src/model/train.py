@@ -144,7 +144,7 @@ def main(args):
     out_dir.mkdir(parents=True, exist_ok=True)
 
     fold = make_fold(select_recordings(args.pigs, args.no_flow_pigs), args.test_pig, args.val_pig,
-                     vlv_mode=args.vlv_mode, qao_mode=args.qao_mode)
+                     vlv_mode=args.vlv_mode, qao_mode=args.qao_mode, per_recording=args.per_recording)
     fold.normalizer.save(out_dir / "normalizer.json")
     print(f"fold: test pig {fold.test_pig}, val pig {fold.val_pig}, train pigs {fold.train_pigs} | "
           f"windows train {len(fold.train)}, val {len(fold.val)}, test {len(fold.test)} | device {device}")
@@ -230,6 +230,8 @@ if __name__ == "__main__":
     ap.add_argument("--beta", type=float, default=1.0)
     ap.add_argument("--gamma", type=float, default=0.1)
     ap.add_argument("--sigma", type=float, default=0.0, help="weight of the summary objective L_S (0 = spec)")
+    ap.add_argument("--per-recording", action="store_true",
+                    help="normalize each recording with its own statistics (option B2)")
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--run-name", default="default")
     ap.add_argument("--keep-prob", type=float, default=0.7, help="sensor dropout: P(keep a signal) per view")
