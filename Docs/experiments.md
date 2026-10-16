@@ -863,4 +863,42 @@ after centring each pig separately; `model/monitor.center_by`). Checkpoint selec
 validation windows. Windows: interleaved 4091 / 553 / 1080, chrono 4636 / 563 / 1034
 (train / val / test). Runs M1 (interleaved), M2 (chrono), seeds 0–2; otherwise = E9.
 
-Results: *pending*
+**Reconstruction generalizes now**: validation reconstruction loss 0.31 (interleaved) and 0.43
+(chrono) vs 1.29 with a held-out pig (training loss ≈ 0.22–0.25 in all cases). Seeing the animal
+removes most of the cross-animal gap of the reconstruction objective.
+
+Benchmark (median within-pig r over the 21 targets and test windows; mean ± sd over 3 seeds):
+
+| split, input | trained | untrained | handcrafted | template PCA |
+|---|---|---|---|---|
+| interleaved, full | 0.94 ± 0.02 | 0.94 ± 0.01 | **1.00** | 0.99 |
+| interleaved, pressures | 0.88 ± 0.02 | 0.87 ± 0.01 | 0.92 | **0.95** |
+| interleaved, P_ao only | 0.85 ± 0.03 | 0.85 ± 0.02 | 0.67 | **0.88** |
+| interleaved, cross-signal, P_ao only | 0.83 ± 0.02 | 0.82 ± 0.01 | 0.66 | **0.88** |
+| interleaved, cross-signal, pressures | 0.77 ± 0.03 | 0.68 ± 0.04 | 0.71 | **0.80** |
+| chrono, full | 0.55 ± 0.10 | 0.54 ± 0.15 | **0.99** | 0.96 |
+| chrono, P_ao only | **0.61 ± 0.08** | 0.55 ± 0.29 | 0.57 | 0.58 |
+| chrono, cross-signal, P_ao only | 0.19 ± 0.17 | 0.39 ± 0.19 | 0.32 | **0.54** |
+
+Missing signals (transfer, no refitting), interleaved: trained 0.39–0.83, clearly above untrained
+on P_lv + V_lv (0.67 vs 0.39) and pressures (0.83 vs 0.69), but handcrafted + regression
+imputation is best on every subset (0.64–0.92). PEEP-manoeuvre AUC: handcrafted best in both
+splits (0.83–1.00); trained 0.62–0.81.
+
+Findings:
+1. **Seeing every animal fixes the reconstruction gap** (validation loss 4× lower than with a
+   held-out pig), confirming that the earlier failure was cross-animal generalization.
+2. **In interpolation (interleaved), the encoder becomes competitive from P_ao alone**: 0.85 overall
+   and 0.83 on cross-signal targets, well above the handcrafted statistics (0.66–0.67). But the
+   **untrained encoder gets the same** (0.82–0.85), and **the mean-beat PCA is better** (0.88):
+   richer waveform features beat summary statistics once the animals are known, yet the
+   self-supervised training still adds nothing over random features or a linear PCA of the beat.
+3. **The only places where training helps** are cross-signal from the four pressures (0.77 vs 0.68
+   untrained) and missing-signal transfer — still below PCA or regression imputation.
+4. **Extrapolating to later phases (chrono) remains hard for everything** that is not trivially in
+   the input; there, the trained encoder is marginally best from P_ao only (0.61 vs 0.55–0.58) but
+   much worse on cross-signal targets (0.19 vs 0.54 for PCA).
+
+Conclusion: with every pig in training, the encoder no longer fails because of unseen animals, but
+it still does not beat a linear mean-beat PCA. The limit now is what the self-supervised
+objectives learn, not generalization to new animals.
