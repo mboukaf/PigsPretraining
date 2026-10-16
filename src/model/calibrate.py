@@ -1,7 +1,7 @@
 """Calibrate-then-track: relative cardiac output from aortic pressure only, after calibrating on
 the first D minutes of the same pig (Docs/experiments.md, "Calibrate then track").
 
-For each pig with flow (2–8) and each calibration duration D:
+For each project pig (4, 6, 7, 8) and each calibration duration D:
   calibration  windows starting in [0, D) min (flow known)
   tracking     windows starting after D + one window length (flow only used for scoring)
 Representation: handcrafted beat statistics of P_ao (model/features.py) — the best method so far.
@@ -33,7 +33,7 @@ from sklearn.linear_model import LinearRegression, RidgeCV
 from sklearn.preprocessing import StandardScaler
 from torch.utils.data import DataLoader, ConcatDataset
 
-from preprocessing.config import CARDIAC, ROOT
+from preprocessing.config import CARDIAC, PIGS, ROOT
 
 from data.folds import make_fold
 from data.store import select_recordings
@@ -42,7 +42,6 @@ from model.benchmark import _impute
 from model.features import window_summaries
 from model.targets import window_targets
 
-PIGS = [2, 3, 4, 5, 6, 7, 8]
 DURATIONS_MIN = [5, 10, 20, 30, 45, 60]
 TARGET = "co_rel"
 BIN_MIN, EXCL_PCT = 5.0, 5.0
@@ -168,7 +167,7 @@ def figure(df: pd.DataFrame, examples: dict):
     fig.suptitle("Calibrate, then track: relative cardiac output from the aortic pressure waveform",
                  x=0.01, y=0.995, ha="left", fontsize=11, fontweight="bold")
     fig.text(0.01, 0.955, "Handcrafted P_ao beat statistics, ridge probe. Top: tracking period after the calibration "
-             "window; line = median, band = interquartile range over pigs 2–8 (offset calibration does not change r or\n"
+             "window; line = median, band = interquartile range over pigs 4, 6, 7, 8 (offset calibration does not change r or\n"
              "concordance, so its line covers the population one). Bottom: black = actual, green = population, "
              "blue = population + offset calibration.", fontsize=8, color=MUTED, va="top")
     FIG.parent.mkdir(parents=True, exist_ok=True)
@@ -182,7 +181,7 @@ if __name__ == "__main__":
     figure(df, examples)
     pd.set_option("display.width", 220)
     for col in ("r", "r2", "err_pct", "concordance"):
-        print(f"\n== {col}: median over pigs 2–8\n",
+        print(f"\n== {col}: median over pigs {PIGS}\n",
               df.groupby(["method", "D_min"])[col].median().unstack().round(2).to_string())
     print("\nmedian number of 5-min changes scored for concordance:", df["n_changes"].median())
     print(f"figure: {FIG.relative_to(ROOT)}")

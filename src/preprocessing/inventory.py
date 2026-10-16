@@ -13,7 +13,7 @@ import numpy as np
 import pandas as pd
 from scipy import signal
 
-from .config import ALL_PIGS, CARDIAC, FS, PAPER_ID, PROC_DIR, SIGNALS
+from .config import PIGS, CARDIAC, FS, PAPER_ID, PROC_DIR, SIGNALS
 from .io import load_raw
 
 LAG_SEARCH_S = 0.30  # search window around each P_ao upstroke for other channels' upstrokes
@@ -84,7 +84,7 @@ def inventory_row(pig_id: int) -> dict:
     return row
 
 
-def build_inventory(pig_ids: list[int] = ALL_PIGS) -> pd.DataFrame:
+def build_inventory(pig_ids: list[int] = PIGS) -> pd.DataFrame:
     return pd.DataFrame([inventory_row(p) for p in pig_ids]).set_index("pig")
 
 

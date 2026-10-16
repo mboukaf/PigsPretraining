@@ -755,3 +755,24 @@ Interpretation for the thesis: a **population pulse-contour-like model of aortic
 tracks within-animal cardiac-output trends in unseen pigs** (r ≈ 0.85, concordance ≈ 88 %), with
 no calibration needed for trending; short calibration periods are counter-productive unless they
 contain haemodynamic variation.
+
+# Data scope (decision 2026-10-16): pigs 4, 6, 7, 8 only
+
+From now on the project uses only the four pigs of Cushway et al. 2024. Pigs 1, 2, 3, 5 are
+excluded for good, from preprocessing onwards (`preprocessing/config.py`: `PIGS`,
+`EXCLUDED_PIGS` with the reasons; raw `.mat` files kept on disk but unused). `pigs.h5` was rebuilt
+with the four pigs and `data.store.load_recordings()` defaults to them. All results above that use
+"all pigs" are historical.
+
+Calibrate-then-track rerun on the four pigs (population probe now from the 3 other pigs):
+
+| median r over pigs 4, 6, 7, 8 | D = 5 | 10 | 20 | 30 | 45 | 60 min |
+|---|---|---|---|---|---|---|
+| population (= population + offset) | 0.70 | 0.73 | 0.79 | 0.82 | 0.82 | 0.81 |
+| calibrated (probe fitted on the first D min) | −0.03 | 0.40 | 0.43 | 0.75 | **0.88** | 0.85 |
+| population + slope & offset | −0.24 | 0.45 | −0.33 | 0.46 | 0.82 | 0.81 |
+
+Trend concordance (population) 79–84 %; calibrated 89–93 % for D ≥ 30 min. Per pig, population r:
+pig 4 0.83, pig 6 0.86, pig 7 **0.13**, pig 8 0.78 — with only three training animals, pig 7 is
+not covered by the population model, while a per-pig probe calibrated on ≥ 45 min (including a
+recruitment manoeuvre) recovers r ≈ 0.85–0.88.

@@ -35,7 +35,7 @@ import h5py
 import numpy as np
 
 from . import artifacts, beats, filtering, qc, resample
-from .config import ALL_PIGS, CARDIAC, FS, PAPER_ID, PROC_DIR, ROOT, SIGNALS, UNITS
+from .config import PIGS, CARDIAC, FS, PAPER_ID, PROC_DIR, ROOT, SIGNALS, UNITS
 from .io import load_raw
 from .plots import plot_beat_overlay, plot_resampled, plot_validity
 
@@ -148,5 +148,5 @@ def main(pig_ids: list[int]) -> None:
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--pigs", type=int, nargs="+", default=ALL_PIGS)
+    ap.add_argument("--pigs", type=int, nargs="+", default=PIGS)
     main(ap.parse_args().pigs)

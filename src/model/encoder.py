@@ -41,9 +41,12 @@ class BeatCNN(nn.Module):
     def __init__(self, n_points: int = 64, out_dim: int = 64):
         super().__init__()
         self.conv = nn.Sequential(
-            nn.Conv1d(1, 16, kernel_size=7, stride=1, padding=3), nn.GELU(),
-            nn.Conv1d(16, 32, kernel_size=5, stride=2, padding=2), nn.GELU(),
-            nn.Conv1d(32, 32, kernel_size=5, stride=2, padding=2), nn.GELU(),
+            nn.Conv1d(1, 16, kernel_size=7, stride=1, padding=3), 
+            nn.GELU(),
+            nn.Conv1d(16, 32, kernel_size=5, stride=2, padding=2), 
+            nn.GELU(),
+            nn.Conv1d(32, 32, kernel_size=5, stride=2, padding=2),
+            nn.GELU(),
             nn.Flatten(),
         )
         self.proj = nn.Linear(32 * (n_points // 4), out_dim)
@@ -63,8 +66,12 @@ class Encoder(nn.Module):
         self.pos = nn.Parameter(torch.randn(cfg.n_beats, D) * 0.02)                     # 12.4
         self.dur = nn.Linear(1, D)
         self.cls = nn.Parameter(torch.randn(D) * 0.02)                                  # 12.5
-        layer = nn.TransformerEncoderLayer(D, cfg.n_heads, cfg.d_ff, cfg.dropout,       # 12.6
-                                           activation="gelu", batch_first=True, norm_first=True)
+        layer = nn.TransformerEncoderLayer(D, cfg.n_heads, 
+                                           cfg.d_ff,
+                                             cfg.dropout,       # 12.6
+                                           activation="gelu", 
+                                           batch_first=True, 
+                                           norm_first=True)
         self.transformer = nn.TransformerEncoder(layer, cfg.n_layers, enable_nested_tensor=False)
         self.head = nn.Sequential(nn.LayerNorm(D), nn.Linear(D, cfg.d_embed))           # 12.7
 
