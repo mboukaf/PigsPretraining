@@ -46,7 +46,19 @@ def embed(encoder, ds: WindowDataset, device, batch_size: int = 256) -> dict[str
         T["mean_P_ao"].append(torch.where(ao.any(1), (beat_mean_ao * ao).sum(1) / n_ao, torch.nan))
         T["pp_P_ao"].append(torch.where(ao.any(1), (beat_pp_ao * ao).sum(1) / n_ao, torch.nan))
         T["mean_Q_ao"].append(torch.where(q.any(1), (X[:, :, _Q].mean(-1) * q).sum(1) / n_q, torch.nan))
-    return {"e": torch.cat(E).numpy()} | {k: torch.cat(v).numpy() for k, v in T.items()}
+    return ({"e": torch.cat(E).numpy(), "pig": np.array([p for p, _ in ds.index])}
+            | {k: torch.cat(v).numpy() for k, v in T.items()})
+
+
+def center_by(v: np.ndarray, groups: np.ndarray | None) -> np.ndarray:
+    """Subtract each group's (pig's) mean: within-pig centring, also with several pigs."""
+    if groups is None:
+        return v - v.mean()
+    out = v.astype(float).copy()
+    for g in np.unique(groups):
+        m = groups == g
+        out[m] -= out[m].mean()
+    return out
 
 
 def effective_rank(e: np.ndarray) -> float:
@@ -72,6 +84,7 @@ def probe_r2(train: dict, val: dict, max_train: int = 5000, seed: int = 0) -> di
         sc = StandardScaler().fit(train["e"][idx])
         model = RidgeCV(alphas=np.logspace(-3, 3, 13)).fit(sc.transform(train["e"][idx]), train[k][idx])
         y, yhat = val[k][va], model.predict(sc.transform(val["e"][va]))
+        g = val["pig"][va] if "pig" in val else None
         out[k] = float(r2_score(y, yhat))
-        out[f"{k}@within"] = float(r2_score(y - y.mean(), yhat - yhat.mean()))
+        out[f"{k}@within"] = float(r2_score(center_by(y, g), center_by(yhat, g)))
     return out

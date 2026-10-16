@@ -103,3 +103,11 @@ class Encoder(nn.Module):
 
 def count_parameters(module: nn.Module) -> int:
     return sum(p.numel() for p in module.parameters())
+
+
+ARCH_KEYS = ("beat_dim", "d_model", "n_layers", "n_heads", "d_ff", "dropout", "d_embed")
+
+
+def config_from_args(args: dict) -> EncoderConfig:
+    """Encoder architecture stored in a run's arguments (defaults = the spec's architecture)."""
+    return EncoderConfig(**{k: args[k] for k in ARCH_KEYS if args.get(k) is not None})

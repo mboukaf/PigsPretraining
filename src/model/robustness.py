@@ -32,10 +32,12 @@ from sklearn.preprocessing import StandardScaler
 
 from preprocessing.config import CARDIAC, ROOT
 
-from data.folds import make_fold
+from data.folds import build_fold
 from data.store import select_recordings
 from model.benchmark import _impute, features
+from model.encoder import config_from_args
 from model.losses import SSLModel
+from model.monitor import center_by
 from model.targets import TARGETS, window_targets
 
 SUBSETS = {
@@ -55,14 +57,17 @@ def _fit(F, y, max_train=5000, seed=0):
     return sc, RidgeCV(alphas=np.logspace(-3, 4, 15)).fit(sc.transform(F[idx]), y[idx])
 
 
-def _score(model, F, y):
+def _score(model, F, y, groups=None):
+    """Within-pig Pearson r (centred per pig when the test set holds several pigs)."""
     ok = ~np.isnan(y)
     if model is None or ok.sum() < 20 or np.std(y[ok]) == 0:
         return np.nan
     yhat = model[1].predict(model[0].transform(F[ok]))
     if np.std(yhat) == 0:
         return 0.0
-    return float(np.corrcoef(y[ok], yhat)[0, 1])
+    g = groups[ok] if groups is not None else None
+    a, b = center_by(y[ok], g), center_by(yhat, g)
+    return float((a * b).sum() / np.sqrt((a ** 2).sum() * (b ** 2).sum() + 1e-12))
 
 
 def _consistency(full: np.ndarray, sub: np.ndarray, ref: np.ndarray) -> float:
@@ -101,14 +106,14 @@ def run_checkpoint(ckpt_path, device) -> list[dict]:
     ckpt = torch.load(ckpt_path, map_location=device, weights_only=False)
     args = ckpt["args"]
     recs = select_recordings(args.get("pigs"), args.get("no_flow_pigs"))
-    fold = make_fold(recs, args["test_pig"], args.get("val_pig"), vlv_mode=args.get("vlv_mode", "relative"),
-                     qao_mode=args.get("qao_mode", "zero"), per_recording=args.get("per_recording", False))
+    fold = build_fold(recs, args)
     torch.manual_seed(args.get("seed", 0))
-    untrained = SSLModel().encoder.to(device).eval()
-    trained = SSLModel().encoder.to(device).eval()
+    untrained = SSLModel(config_from_args(args)).encoder.to(device).eval()
+    trained = SSLModel(config_from_args(args)).encoder.to(device).eval()
     trained.load_state_dict(ckpt["encoder"])
     enc = {"trained": trained, "untrained": untrained}
     ytr, yte = window_targets(recs, fold.train.index), window_targets(recs, fold.test.index)
+    pig_te = np.array([p for p, _ in fold.test.index])
 
     tr_full = features(fold.train, enc, CARDIAC, device)
     te_full = features(fold.test, enc, CARDIAC, device)
@@ -140,9 +145,9 @@ def run_checkpoint(ckpt_path, device) -> list[dict]:
                 rows.append({"run": ckpt_path.parent.parent.name, "fold": args["test_pig"], "seed": args.get("seed", 0),
                              "pigs": "paper" if args.get("pigs") else "all", "subset": subset, "method": m,
                              "target": t, "consistency": cons,
-                             "r_transfer": _score(full_models[m][t], R_te_s[m][mte], y),
-                             "r_refit": _score(_fit(R_tr_refit[m][mtr], ytr[t].to_numpy()[mtr]), R_te_refit[m][mte], y),
-                             "r_full": _score(full_models[m][t], R_te_full[m], yte[t].to_numpy())})
+                             "r_transfer": _score(full_models[m][t], R_te_s[m][mte], y, pig_te[mte]),
+                             "r_refit": _score(_fit(R_tr_refit[m][mtr], ytr[t].to_numpy()[mtr]), R_te_refit[m][mte], y, pig_te[mte]),
+                             "r_full": _score(full_models[m][t], R_te_full[m], yte[t].to_numpy(), pig_te)})
     return rows
 
 

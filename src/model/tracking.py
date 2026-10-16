@@ -26,9 +26,10 @@ from sklearn.preprocessing import StandardScaler
 
 from preprocessing.config import ROOT
 
-from data.folds import make_fold
+from data.folds import build_fold
 from data.store import select_recordings
 from model.benchmark import REGIMES, _impute, features
+from model.encoder import config_from_args
 from model.losses import SSLModel
 from model.targets import window_targets
 
@@ -53,11 +54,10 @@ def run_checkpoint(ckpt_path, device) -> list[dict]:
     ckpt = torch.load(ckpt_path, map_location=device, weights_only=False)
     args = ckpt["args"]
     recs = select_recordings(args.get("pigs"), args.get("no_flow_pigs"))
-    fold = make_fold(recs, args["test_pig"], args.get("val_pig"), vlv_mode=args.get("vlv_mode", "relative"),
-                     qao_mode=args.get("qao_mode", "zero"), per_recording=args.get("per_recording", False))
+    fold = build_fold(recs, args)
     torch.manual_seed(args.get("seed", 0))
-    untrained = SSLModel().encoder.to(device).eval()
-    trained = SSLModel().encoder.to(device).eval()
+    untrained = SSLModel(config_from_args(args)).encoder.to(device).eval()
+    trained = SSLModel(config_from_args(args)).encoder.to(device).eval()
     trained.load_state_dict(ckpt["encoder"])
     enc = {"trained": trained, "untrained": untrained}
     ytr = window_targets(recs, fold.train.index)["peep"].to_numpy()

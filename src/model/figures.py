@@ -15,7 +15,7 @@ from sklearn.linear_model import RidgeCV
 from sklearn.preprocessing import StandardScaler
 from torch.utils.data import DataLoader
 
-from preprocessing.config import CARDIAC, ROOT
+from preprocessing.config import CARDIAC, PIGS, ROOT
 
 from data.folds import make_fold
 from data.store import select_recordings
@@ -24,8 +24,8 @@ from model.features import window_summaries
 from model.targets import window_targets
 
 OUT = ROOT / "figures" / "results"
-RUNS = ["E7", "E7s1", "E7s2", "E9", "E9s1", "E9s2"]
-TEST_PIGS = [4, 6, 7, 8]
+RUNS = ["E9", "E9s1", "E9s2"]          # encoders trained on the project pigs only (4, 6, 7, 8), seeds 0–2
+TEST_PIGS = PIGS
 
 # validated categorical palette (light mode), fixed order; text never takes series colours
 C = {"trained": "#2a78d6", "handcrafted": "#eb6834", "untrained": "#1baf7a", "template_pca": "#eda100",
@@ -59,7 +59,7 @@ def _summaries(ds, signals):
 
 
 def fig_flow_tracking():
-    recs = select_recordings([4, 6, 7, 8])
+    recs = select_recordings(PIGS)
     fig, axes = plt.subplots(len(TEST_PIGS), 1, figsize=(9.5, 8.6), sharex=False)
     for ax, k in zip(axes, TEST_PIGS):
         fold = make_fold(recs, k, vlv_mode="scaled", qao_mode="scaled")
@@ -88,8 +88,8 @@ def fig_flow_tracking():
     axes[-1].set_xlabel("time [min]   (grey bands: PEEP recruitment manoeuvres, PEEP ≥ 7 cmH₂O)")
     fig.suptitle("Relative cardiac output tracked from the aortic pressure waveform alone, in unseen pigs",
                  x=0.01, y=0.995, ha="left", fontsize=11, fontweight="bold")
-    fig.text(0.01, 0.958, "Linear probe on handcrafted beat statistics of P_ao, fitted on the other paper pigs "
-             "(4, 6, 7, 8; fold's validation pig excluded). Both curves z-scored within the test pig.",
+    fig.text(0.01, 0.958, "Linear probe on handcrafted beat statistics of P_ao, fitted on two of the other project pigs "
+             "(the fold's validation pig is held out). Both curves z-scored within the test pig.",
              fontsize=8, color=MUTED)
     fig.tight_layout(rect=(0, 0, 1, 0.945))
     fig.savefig(OUT / "fig1_flow_tracking.png")
@@ -105,9 +105,10 @@ def fig_benchmark():
             ("Pressures only", lambda d: d.regime == "pressures"),
             ("P_ao only", lambda d: d.regime == "P_ao_only"),
             ("P_ao only,\ncross-signal targets", lambda d: (d.regime == "P_ao_only") & d.cross_signal)]
-    fig, axes = plt.subplots(1, 2, figsize=(10, 3.8), sharey=True)
-    for ax, (pigs, title) in zip(axes, [("all", "Trained on all 8 pigs"), ("paper", "Trained on the paper's pigs (4, 6, 7, 8)")]):
-        d = df[df.pigs == pigs]
+    fig, ax = plt.subplots(1, 1, figsize=(7, 3.8))
+    axes = [ax]
+    for ax, title in zip(axes, ["Leave-one-pig-out over pigs 4, 6, 7, 8"]):
+        d = df
         for i, (name, mask) in enumerate(rows):
             for j, m in enumerate(methods):
                 vals = d[mask(d) & (d.method == m)].groupby("seed")["r_within"].median()
@@ -123,11 +124,11 @@ def fig_benchmark():
         ax.grid(axis="y", visible=False)
     h, l = axes[0].get_legend_handles_labels()
     fig.legend(h, l, loc="lower center", ncol=4, fontsize=8, bbox_to_anchor=(0.5, 0.0))
-    fig.suptitle("Probing 21 physiological targets on unseen pigs: simple beat statistics beat the learned embedding",
+    fig.suptitle("21 physiological targets on unseen pigs:\nsimple beat statistics beat the learned embedding",
                  x=0.01, ha="left", fontsize=11, fontweight="bold")
-    fig.text(0.01, 0.905, "Median over targets and test pigs (4, 6, 7, 8); dot = mean over 3 seeds, line = ± sd.",
+    fig.text(0.01, 0.84, "Median over targets and test pigs; dot = mean over 3 seeds, line = ± sd.",
              fontsize=8, color=MUTED)
-    fig.tight_layout(rect=(0, 0.08, 1, 0.9))
+    fig.tight_layout(rect=(0, 0.1, 1, 0.83))
     fig.savefig(OUT / "fig2_benchmark.png")
     plt.close(fig)
 
@@ -135,8 +136,7 @@ def fig_benchmark():
 # --- figure 3: robustness to missing signals ---------------------------------------------------
 
 def fig_robustness():
-    df = _load("robustness")
-    d = df[df.pigs == "all"]
+    d = _load("robustness")
     subsets = ["P_ao_only", "P_fem_only", "P_fem+P_vc", "P_lv+V_lv", "pressures", "P_ao+Q_ao"]
     names = {"P_ao_only": "P_ao", "P_fem_only": "P_fem", "P_fem+P_vc": "P_fem + P_vc",
              "P_lv+V_lv": "P_lv + V_lv", "pressures": "4 pressures", "P_ao+Q_ao": "P_ao + Q_ao"}
@@ -169,7 +169,7 @@ def fig_robustness():
     fig.legend([handles[l] for l in order], order, loc="lower center", ncol=4, fontsize=8, bbox_to_anchor=(0.5, 0.0))
     fig.suptitle("Missing signals: the encoder is the most sensor-invariant, but a classical imputation pipeline predicts better",
                  x=0.01, ha="left", fontsize=11, fontweight="bold")
-    fig.text(0.01, 0.9, "Trained on all 8 pigs; test pigs 4, 6, 7, 8; mean ± sd over 3 seeds of the median over targets and pigs.",
+    fig.text(0.01, 0.9, "Leave-one-pig-out over pigs 4, 6, 7, 8; mean ± sd over 3 seeds of the median over targets and pigs.",
              fontsize=8, color=MUTED)
     fig.tight_layout(rect=(0, 0.08, 1, 0.88))
     fig.savefig(OUT / "fig3_robustness.png")
@@ -183,7 +183,7 @@ def fig_tracking():
     methods = ["trained", "untrained", "handcrafted", "template_pca"]
     fig, axes = plt.subplots(1, 2, figsize=(10, 3.4), sharey=True)
     for ax, regime, title in zip(axes, ["full", "P_ao_only"], ["All 6 signals", "Aortic pressure only"]):
-        d = df[(df.regime == regime) & (df.pigs == "all")]
+        d = df[df.regime == regime]
         x = np.arange(len(TEST_PIGS))
         for j, m in enumerate(methods):
             g = d[d.method == m].groupby("fold")["auc"].agg(["mean", "std"]).reindex(TEST_PIGS)
@@ -198,7 +198,7 @@ def fig_tracking():
     fig.legend(h, l, loc="lower center", ncol=4, fontsize=8, bbox_to_anchor=(0.5, 0.0))
     fig.suptitle("Detecting PEEP recruitment manoeuvres from the cardiac waveforms",
                  x=0.01, ha="left", fontsize=11, fontweight="bold")
-    fig.text(0.01, 0.89, "Trained on all 8 pigs; classifier fitted on the training pigs; bar = mean over 3 seeds, "
+    fig.text(0.01, 0.89, "Leave-one-pig-out over pigs 4, 6, 7, 8; classifier fitted on the training pigs; bar = mean over 3 seeds, "
              "line = ± sd; dashed line = chance.", fontsize=8, color=MUTED)
     fig.tight_layout(rect=(0, 0.08, 1, 0.87))
     fig.savefig(OUT / "fig4_peep_detection.png")

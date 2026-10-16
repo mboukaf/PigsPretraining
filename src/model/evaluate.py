@@ -26,8 +26,9 @@ from torch.utils.data import DataLoader
 
 from preprocessing.config import CARDIAC, ROOT
 
-from data.folds import make_fold
+from data.folds import build_fold
 from data.store import select_recordings
+from model.encoder import config_from_args
 from model.losses import SSLModel
 from model.monitor import embed, probe_r2
 
@@ -76,12 +77,10 @@ def main(runs: list[str], split: str = "val"):
             ckpt = torch.load(ckpt_path, map_location=device, weights_only=False)
             args = ckpt["args"]
             recs = select_recordings(args.get("pigs"), args.get("no_flow_pigs"))   # the run's own data
-            fold = make_fold(recs, args["test_pig"], args.get("val_pig"),
-                             vlv_mode=args.get("vlv_mode", "relative"), qao_mode=args.get("qao_mode", "zero"),
-                             per_recording=args.get("per_recording", False))
+            fold = build_fold(recs, args)
             torch.manual_seed(args.get("seed", 0))                 # same init as the run's epoch 0
-            untrained = SSLModel().encoder.to(device)
-            trained = SSLModel().encoder.to(device)
+            untrained = SSLModel(config_from_args(args)).encoder.to(device)
+            trained = SSLModel(config_from_args(args)).encoder.to(device)
             trained.load_state_dict(ckpt["encoder"])
             for name, enc in (("untrained", untrained), (f"trained (ep {ckpt['epoch']})", trained)):
                 rows.append({"run": run, "fold": ckpt_path.parent.name, "split": split, "encoder": name} |

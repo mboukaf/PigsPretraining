@@ -776,3 +776,91 @@ Trend concordance (population) 79–84 %; calibrated 89–93 % for D ≥ 30 min.
 pig 4 0.83, pig 6 0.86, pig 7 **0.13**, pig 8 0.78 — with only three training animals, pig 7 is
 not covered by the population model, while a per-pig probe calibrated on ≥ 45 min (including a
 recruitment manoeuvre) recovers r ≈ 0.85–0.88.
+
+## All analyses on pigs 4, 6, 7, 8 only (2026-10-16)
+
+Encoders: E9, E9s1, E9s2 (trained on the four pigs, leave-one-pig-out, seeds 0–2; unaffected by
+the rebuild — same data for these pigs). Figures 1–5 in `figures/results/` regenerated from these
+runs only (`python -m model.figures`, `python -m model.calibrate`); within-pig analysis rerun with
+the E9 encoders (`python -m model.withinpig E9`).
+
+| test (unseen pig unless stated) | trained | untrained | handcrafted | template PCA | handcrafted + imputation |
+|---|---|---|---|---|---|
+| 21 targets, full input (median r) | 0.76 | 0.74 | **0.99** | 0.94 | – |
+| 21 targets, pressures only | 0.69 | 0.66 | **0.88** | 0.77 | – |
+| 21 targets, P_ao only | 0.70 | 0.72 | **0.77** | 0.60 | – |
+| missing signals, transfer, P_ao only | 0.34 | 0.44 | 0.45 | 0.59 | **0.73** |
+| missing signals, transfer, P_fem only | 0.36 | 0.38 | 0.18 | 0.18 | **0.71** |
+| missing signals, transfer, P_lv + V_lv | 0.62 | 0.39 | 0.59 | 0.28 | **0.77** |
+| PEEP manoeuvre AUC, full input | 0.69 | 0.74 | 0.84 | **0.93** | – |
+| PEEP manoeuvre AUC, P_ao only | 0.79 | 0.66 | **0.87** | 0.54 | – |
+| same pig, chronological split, P_ao only (r) | 0.47 | 0.48 | **0.85** | 0.64 | – |
+
+Conclusions unchanged with the four pigs: handcrafted beat statistics (with regression
+imputation for missing signals) are the best representation on every test; the trained encoder is
+not reliably better than an untrained one. Within-pig, the handcrafted probe reaches r = 0.85 on
+the later, unseen phases from P_ao alone; the encoders do not (0.47).
+
+## Capacity sweep — does a bigger encoder help? (C1–C3, pigs 4, 6, 7, 8)
+
+Change: encoder architecture configurable (`--beat-dim --d-model --n-layers --n-heads --d-ff
+--dropout --d-embed`, `model/encoder.py:config_from_args`); stored in each checkpoint's args, so
+all evaluation scripts rebuild the right network. Everything else = E9 (scaled Q_ao / V_lv,
+γ 0.1, keep 0.7, σ 0, 10 epochs, leave-one-pig-out over pigs 4, 6, 7, 8, seeds 0–2).
+
+| run | architecture | encoder parameters |
+|---|---|---|
+| E9 (baseline) | spec: D 128, 4 layers, 4 heads, FF 512, C 64, d_e 32 | 1.10 M |
+| C1 deep | 8 layers | 1.89 M |
+| C2 wide | D 256, 8 heads, FF 1024 | 3.52 M |
+| C3 big | D 256, 8 layers, 8 heads, FF 1024, C 128, d_e 64 | 6.98 M |
+
+36 runs, all completed; benchmark, robustness and tracking evaluated as for E9. Values: median over
+targets (or subsets) and test pigs, mean ± sd over 3 seeds.
+
+| trained encoder | base (E9) | deep (C1) | wide (C2) | big (C3) | handcrafted |
+|---|---|---|---|---|---|
+| 21 targets, full input | **0.77 ± 0.04** | 0.73 ± 0.07 | 0.74 ± 0.03 | 0.75 ± 0.04 | 0.99 |
+| 21 targets, pressures | 0.69 ± 0.07 | 0.65 ± 0.05 | 0.67 ± 0.03 | **0.70 ± 0.07** | 0.88 |
+| 21 targets, P_ao only | **0.69 ± 0.03** | 0.67 ± 0.11 | 0.65 ± 0.05 | 0.59 ± 0.04 | 0.77 |
+| cross-signal, P_ao only | **0.62 ± 0.08** | 0.59 ± 0.18 | 0.61 ± 0.04 | 0.52 ± 0.07 | 0.73 |
+| cross-signal, pressures | **0.58 ± 0.10** | 0.48 ± 0.17 | 0.50 ± 0.05 | 0.48 ± 0.11 | 0.50 |
+| missing signals, transfer, P_ao only | 0.35 ± 0.06 | **0.51 ± 0.13** | 0.48 ± 0.06 | 0.20 ± 0.07 | 0.73 (imputed) |
+| missing signals, transfer, P_lv + V_lv | 0.59 ± 0.09 | 0.53 ± 0.09 | **0.63 ± 0.01** | 0.53 ± 0.06 | 0.77 (imputed) |
+| PEEP manoeuvre AUC, P_ao only | 0.77 ± 0.04 | 0.76 ± 0.03 | **0.78 ± 0.11** | 0.70 ± 0.09 | 0.87 |
+
+Reconstruction loss (objective A), median over runs: training 0.25–0.27 for all sizes, validation
+1.26–1.29 for all sizes (≈ 5× higher).
+
+Findings:
+1. **More capacity does not improve anything consistently.** Differences between base, deep and
+   wide are within the seed spread; the biggest model (C3, 7 M parameters) is the worst on most
+   tests (e.g. P_ao only 0.59 vs 0.69, missing-signal transfer from P_ao 0.20 vs 0.35).
+2. **The gap is not a capacity problem**: every size fits the training pigs equally well
+   (reconstruction 0.25) and generalizes equally badly to a new pig (1.27, five times worse).
+   With 2 training pigs per fold, extra parameters can only memorize the training animals.
+3. All sizes stay below the handcrafted baselines on every test.
+
+Decision: keep the spec architecture (base); capacity is not the lever. Consistent with the overall
+diagnosis — the limit is the number of animals, not the network.
+
+## Mixed-pig training — all four pigs in training, split in time (M1, M2)
+
+Question: does the encoder do better when every pig is seen during training (no animal held out)?
+
+Change: `--split interleaved | chrono` (`data/folds.py: make_time_fold`, `build_fold`). Each pig's
+recording is split in time, identically for all four pigs:
+- **interleaved**: 20 equal blocks; blocks 2, 7, 12, 17 test, 4 and 14 validation, the other 14
+  training — test windows come from the same experimental phases as training (interpolation);
+- **chronological**: first 70 % training, next 10 % validation, last 20 % test — the late phases
+  are never seen (extrapolation in time).
+
+Windows are kept only if their beats, plus a margin of one window + the maximum view shift
+(36 beats), lie entirely in their split: 0 beats shared between training (incl. shifted views) and
+test windows (checked). The normalizer is fitted on training beats only. Probes are fitted on the
+training windows of all pigs and scored on the test windows, still **within pig** (correlation
+after centring each pig separately; `model/monitor.center_by`). Checkpoint selection uses the
+validation windows. Windows: interleaved 4091 / 553 / 1080, chrono 4636 / 563 / 1034
+(train / val / test). Runs M1 (interleaved), M2 (chrono), seeds 0–2; otherwise = E9.
+
+Results: *pending*

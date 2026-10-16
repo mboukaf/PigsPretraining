@@ -38,10 +38,12 @@ from torch.utils.data import DataLoader
 
 from preprocessing.config import CARDIAC, ROOT
 
-from data.folds import make_fold
+from data.folds import build_fold
 from data.store import select_recordings
 from model.features import window_summaries
+from model.encoder import config_from_args
 from model.losses import SSLModel
+from model.monitor import center_by
 from model.targets import TARGET_SOURCES, TARGETS, window_targets
 
 REGIMES = {
@@ -94,7 +96,7 @@ def _impute(train: np.ndarray, test: np.ndarray):
     return f(train), f(test)
 
 
-def probe(Ftr, ytr, Fte, yte, max_train: int = 5000, seed: int = 0) -> dict[str, float]:
+def probe(Ftr, ytr, Fte, yte, max_train: int = 5000, seed: int = 0, groups=None) -> dict[str, float]:
     tr, te = ~np.isnan(ytr), ~np.isnan(yte)
     if tr.sum() < 50 or te.sum() < 20 or np.std(yte[te]) == 0:
         return {"r2_within": np.nan, "r_within": np.nan}
@@ -103,7 +105,8 @@ def probe(Ftr, ytr, Fte, yte, max_train: int = 5000, seed: int = 0) -> dict[str,
     sc = StandardScaler().fit(Ftr[idx])
     model = RidgeCV(alphas=np.logspace(-3, 4, 15)).fit(sc.transform(Ftr[idx]), ytr[idx])
     y, yhat = yte[te], model.predict(sc.transform(Fte[te]))
-    yc, hc = y - y.mean(), yhat - yhat.mean()
+    g = groups[te] if groups is not None else None
+    yc, hc = center_by(y, g), center_by(yhat, g)
     r2 = 1 - np.sum((yc - hc) ** 2) / np.sum(yc ** 2)
     r = np.sum(yc * hc) / np.sqrt(np.sum(yc ** 2) * np.sum(hc ** 2)) if np.std(yhat) > 0 else 0.0
     return {"r2_within": float(r2), "r_within": float(r)}
@@ -113,17 +116,16 @@ def benchmark_checkpoint(ckpt_path, device) -> list[dict]:
     ckpt = torch.load(ckpt_path, map_location=device, weights_only=False)
     args = ckpt["args"]
     recs = select_recordings(args.get("pigs"), args.get("no_flow_pigs"))
-    fold = make_fold(recs, args["test_pig"], args.get("val_pig"),
-                     vlv_mode=args.get("vlv_mode", "relative"), qao_mode=args.get("qao_mode", "zero"),
-                             per_recording=args.get("per_recording", False))
+    fold = build_fold(recs, args)
     torch.manual_seed(args.get("seed", 0))
-    untrained = SSLModel().encoder.to(device).eval()
-    trained = SSLModel().encoder.to(device).eval()
+    untrained = SSLModel(config_from_args(args)).encoder.to(device).eval()
+    trained = SSLModel(config_from_args(args)).encoder.to(device).eval()
     trained.load_state_dict(ckpt["encoder"])
     encoders = {"trained": trained, "untrained": untrained}
 
     ytr = window_targets(recs, fold.train.index)
     yte = window_targets(recs, fold.test.index)
+    pig_te = np.array([p for p, _ in fold.test.index])
     rows = []
     for regime, signals in REGIMES.items():
         Ftr, Fte = features(fold.train, encoders, signals, device), features(fold.test, encoders, signals, device)
@@ -137,9 +139,9 @@ def benchmark_checkpoint(ckpt_path, device) -> list[dict]:
                 "template_pca": (pca.transform(Ftr["mean_beat"]), pca.transform(Fte["mean_beat"]))}
         for method, (A, B) in reps.items():
             for t in TARGETS:
-                res = probe(A[mtr], ytr[t].to_numpy()[mtr], B[mte], yte[t].to_numpy()[mte])
+                res = probe(A[mtr], ytr[t].to_numpy()[mtr], B[mte], yte[t].to_numpy()[mte], groups=pig_te[mte])
                 cross = bool(TARGET_SOURCES[t]) and not any(s in signals for s in TARGET_SOURCES[t])
-                rows.append({"run": ckpt_path.parent.parent.name, "fold": args["test_pig"],
+                rows.append({"run": ckpt_path.parent.parent.name, "fold": args["test_pig"], "split": fold.scheme,
                              "seed": args.get("seed", 0), "pigs": "paper" if args.get("pigs") else "all",
                              "method": method, "regime": regime, "target": t,
                              "cross_signal": cross} | res)

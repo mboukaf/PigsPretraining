@@ -33,9 +33,10 @@ from torch.utils.data import DataLoader, Sampler
 
 from preprocessing.config import ROOT
 
-from data.folds import make_fold
+from data.folds import build_fold
 from data.store import select_recordings
 from model.features import window_summaries
+from model.encoder import ARCH_KEYS, config_from_args, count_parameters
 from model.losses import SSLModel
 from model.evaluate import evaluate_encoder
 from model.monitor import PROBE_TARGETS, effective_rank, embed, probe_r2
@@ -140,11 +141,14 @@ def evaluate(model, fold, off, device, beta, gamma, seed: int = 123, keep_prob: 
 def main(args):
     device = "mps" if torch.backends.mps.is_available() else "cuda" if torch.cuda.is_available() else "cpu"
     torch.manual_seed(args.seed)
+    if args.split == "lopo" and args.test_pig is None:
+        raise SystemExit("--test-pig is required with --split lopo")
+    if args.split != "lopo":
+        args.test_pig = 0                      # all pigs in every split; stored as fold0
     out_dir = ROOT / "runs" / args.run_name / f"fold{args.test_pig}"
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    fold = make_fold(select_recordings(args.pigs, args.no_flow_pigs), args.test_pig, args.val_pig,
-                     vlv_mode=args.vlv_mode, qao_mode=args.qao_mode, per_recording=args.per_recording)
+    fold = build_fold(select_recordings(args.pigs, args.no_flow_pigs), vars(args))
     fold.normalizer.save(out_dir / "normalizer.json")
     print(f"fold: test pig {fold.test_pig}, val pig {fold.val_pig}, train pigs {fold.train_pigs} | "
           f"windows train {len(fold.train)}, val {len(fold.val)}, test {len(fold.test)} | device {device}")
@@ -155,7 +159,9 @@ def main(args):
     off = offset_scale(fold.normalizer, device)
     gen = torch.Generator().manual_seed(args.seed)
 
-    model = SSLModel().to(device)
+    cfg = config_from_args(vars(args))
+    model = SSLModel(cfg).to(device)
+    print(f"encoder: {cfg} | {count_parameters(model.encoder):,} parameters")
     model.set_summary_stats(*(t.to(device) for t in summary_stats(fold.train)))
     opt = torch.optim.AdamW(param_groups(model, args.weight_decay), lr=args.lr)
     total = args.epochs * len(sampler)
@@ -218,7 +224,10 @@ def main(args):
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--test-pig", type=int, required=True)
+    ap.add_argument("--test-pig", type=int, default=None, help="leave-one-pig-out: the held-out pig")
+    ap.add_argument("--split", default="lopo", choices=["lopo", "chrono", "interleaved"],
+                    help="lopo = leave-one-pig-out (needs --test-pig); chrono / interleaved = all pigs in "
+                         "training, split in time (data/folds.py)")
     ap.add_argument("--val-pig", type=int, default=None)
     ap.add_argument("--epochs", type=int, default=100)
     ap.add_argument("--eval-every", type=int, default=2)
@@ -230,6 +239,9 @@ if __name__ == "__main__":
     ap.add_argument("--beta", type=float, default=1.0)
     ap.add_argument("--gamma", type=float, default=0.1)
     ap.add_argument("--sigma", type=float, default=0.0, help="weight of the summary objective L_S (0 = spec)")
+    for k, typ in (("beat-dim", int), ("d-model", int), ("n-layers", int), ("n-heads", int), ("d-ff", int),
+                   ("dropout", float), ("d-embed", int)):
+        ap.add_argument(f"--{k}", type=typ, default=None, help="encoder architecture (default: spec)")
     ap.add_argument("--per-recording", action="store_true",
                     help="normalize each recording with its own statistics (option B2)")
     ap.add_argument("--seed", type=int, default=0)
